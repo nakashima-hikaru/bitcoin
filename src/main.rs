@@ -2,6 +2,7 @@ use primitive_types::U256;
 
 mod field_element;
 mod point;
+mod secp256k1;
 
 fn main() {
     let p = U256::from_str_radix(

@@ -68,7 +68,7 @@ impl Sub for FieldElement {
         if self.num >= rhs.num {
             tmp = self.num - rhs.num;
         } else {
-            tmp = self.prime + self.num - rhs.num;
+            tmp = (self.prime - rhs.num) + self.num;
         }
         let num = tmp % self.prime;
         FieldElement {
