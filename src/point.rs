@@ -128,9 +128,8 @@ impl Mul<Point> for U256 {
         let mut ret = Point::new(None, rhs.a, rhs.b);
         let mut tmp_num = rhs;
         let mut tmp_exponent = self;
-        // println!("{}", tmp_exponent);
-        while tmp_exponent > U256::zero() {
-            if tmp_exponent & U256::one() == U256::one() {
+        while !tmp_exponent.is_zero() {
+            if tmp_exponent.bit(0) {
                 ret += tmp_num;
             }
             tmp_num += tmp_num;
@@ -146,8 +145,8 @@ impl Mul<U256> for Point {
         let mut ret = Point::new(None, self.a, self.b);
         let mut tmp_num = self;
         let mut tmp_exponent = rhs;
-        while tmp_exponent > U256::zero() {
-            if tmp_exponent & U256::one() == U256::one() {
+        while !tmp_exponent.is_zero() {
+            if tmp_exponent.bit(0) {
                 ret += tmp_num;
             }
             tmp_num += tmp_num;

@@ -1,5 +1,5 @@
 use core::fmt::Debug;
-use primitive_types::{U256, U512};
+use primitive_types::U256;
 use std::fmt;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
@@ -11,7 +11,7 @@ pub struct FieldElement {
 
 impl FieldElement {
     pub fn new(num: U256, prime: U256) -> FieldElement {
-        if num >= prime || num < U256::zero() {
+        if num >= prime {
             let error = format!(
                 "Num {:?} not in field range 0 to {:?}",
                 num,
@@ -32,14 +32,18 @@ impl FieldElement {
         let mut ret = FieldElement::new(U256::one(), self.prime);
         let mut tmp_num = self;
         let mut tmp_exponent = exponent;
-        while tmp_exponent > U256::zero() {
-            if tmp_exponent & U256::one() == U256::one() {
+        while !tmp_exponent.is_zero() {
+            if tmp_exponent.bit(0) {
                 ret *= tmp_num;
             }
             tmp_num *= tmp_num;
             tmp_exponent >>= 1;
         }
         ret
+    }
+
+    pub fn get_inverse(&self) -> FieldElement {
+        self.pow(self.prime - U256::from(2))
     }
 }
 
@@ -78,15 +82,29 @@ impl Sub for FieldElement {
     }
 }
 
-impl Mul for FieldElement {
+impl Mul<FieldElement> for FieldElement {
     type Output = Self;
     fn mul(self, rhs: FieldElement) -> Self::Output {
         assert_eq!(self.prime, rhs.prime);
-        let num = (U512::from(self.num) * U512::from(rhs.num)) % self.prime;
+        let num = (self.num.full_mul(rhs.num)) % self.prime;
         FieldElement {
             num: U256::try_from(num).unwrap(),
             prime: self.prime,
         }
+    }
+}
+
+impl Mul<U256> for FieldElement {
+    type Output = Self;
+    fn mul(self, rhs: U256) -> Self::Output {
+        self * FieldElement::new(rhs % self.prime, self.prime)
+    }
+}
+
+impl Mul<FieldElement> for U256 {
+    type Output = FieldElement;
+    fn mul(self, rhs: FieldElement) -> Self::Output {
+        rhs * self
     }
 }
 
@@ -116,6 +134,12 @@ impl MulAssign<FieldElement> for FieldElement {
     }
 }
 
+impl MulAssign<U256> for FieldElement {
+    fn mul_assign(&mut self, rhs: U256) {
+        *self = *self * rhs;
+    }
+}
+
 impl DivAssign<FieldElement> for FieldElement {
     fn div_assign(&mut self, rhs: FieldElement) {
         *self = *self / rhs;
@@ -131,6 +155,7 @@ impl fmt::Display for FieldElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test::Bencher;
     #[test]
     fn test_add() {
         let prime = U256::from(57);
@@ -185,5 +210,10 @@ mod tests {
         assert_eq!((fp - fp2).get_num(), U256::from(2));
         assert_eq!((fp * fp2), fp2);
         assert_eq!((fp / fp2), fp2);
+    }
+
+    #[bench]
+    fn bench_multiple1(b: &mut Bencher) {
+        b.iter(|| test_overflow());
     }
 }

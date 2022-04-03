@@ -1,34 +1,23 @@
-use primitive_types::U256;
+#![feature(test)]
+extern crate test;
+use crate::secp256k1::S256Point;
 
 mod field_element;
 mod point;
 mod secp256k1;
+mod signature;
 
-fn main() {
-    let p = U256::from_str_radix(
-        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F",
-        16,
-    )
-    .unwrap();
-    let gx = U256::from_str_radix(
-        "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798",
-        16,
-    )
-    .unwrap();
-    let gy = U256::from_str_radix(
-        "483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8",
-        16,
-    )
-    .unwrap();
-    let n = U256::from_str_radix(
-        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
-        16,
-    )
-    .unwrap();
-    let gy = field_element::FieldElement::new(gy, p);
-    let gx = field_element::FieldElement::new(gx, p);
-    assert_eq!(
-        gy * gy,
-        gx * gx * gx + field_element::FieldElement::new(U256::from(7), p)
-    );
+fn main() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test::Bencher;
+
+    #[bench]
+    fn bench_multiple(b: &mut Bencher) {
+        let g = S256Point::get_generic_point();
+        let n = S256Point::get_order_of_generic_point();
+        b.iter(|| n * g);
+    }
 }
