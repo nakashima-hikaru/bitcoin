@@ -1,7 +1,6 @@
 #![feature(test)]
 extern crate test;
 use crate::secp256k1::S256Point;
-
 mod field_element;
 mod point;
 mod secp256k1;

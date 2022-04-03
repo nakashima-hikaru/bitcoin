@@ -31,6 +31,7 @@ impl S256Field {
     pub fn as_field_element(&self) -> FieldElement {
         self.field_element
     }
+
     pub fn get_inverse(&self) -> S256Field {
         S256Field::new(self.as_field_element().get_inverse().get_num())
     }
@@ -125,6 +126,10 @@ impl S256Point {
             point = Point::new(None, a, b);
         }
         Self { point }
+    }
+
+    pub fn get_point(&self) -> Point {
+        self.point
     }
 
     pub fn get_generic_point() -> Self {

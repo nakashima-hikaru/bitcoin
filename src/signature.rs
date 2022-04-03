@@ -4,7 +4,6 @@ use crate::{
 };
 use hmac::{Hmac, Mac};
 use primitive_types::U256;
-use sha2::Digest;
 use sha2::Sha256;
 use std::fmt;
 type HmacSha256 = Hmac<Sha256>;
@@ -14,6 +13,9 @@ pub struct Signature {
 }
 
 impl Signature {
+    pub fn new(r: FieldElement, s: FieldElement) -> Self {
+        Self { r, s }
+    }
     pub fn get_r(&self) -> FieldElement {
         self.r
     }
@@ -40,27 +42,68 @@ impl PrivateKey {
         }
     }
 
-    // pub fn deterministic_k(&self, mut z: U256) -> U256 {
-    //     let mut k = b'\x00' * 32;
-    //     let v = b'\x01' * 32;
-    //     let n = U256::from_str_radix(N, 16).unwrap();
-    //     if z > n {
-    //         z -= n;
-    //         let mut z_bytes: [u8; 32] = Default::default();
-    //         let mut secret_bytes: [u8; 32] = Default::default();
-    //         z.to_big_endian(&mut z_bytes);
-    //         self.secret.to_big_endian(&mut secret_bytes);
-    //         let mut s256 = Sha256::new();
-    //         let mut mac = HmacSha256::new_from_slice(b"my secret and secure key")
-    //             .expect("HMAC can take key of any size");
-    //         mac.update(b"input message");
-    //         let tmp = HmacSha256::
-    //     }
-    //     U256::one()
-    // }
+    pub fn sign(&self, z: U256) -> Signature {
+        let k = self.deterministic_k(z);
+        let r = (k * S256Point::get_generic_point())
+            .get_point()
+            .get_coordinate()
+            .unwrap()
+            .get_x();
+        let n = U256::from_str_radix(N, 16).unwrap();
+        let k_inv = FieldElement::new(k % n, n).get_inverse();
+        let s = (FieldElement::new(z, n) + r * self.secret) * k_inv;
+        let mut s = s.get_num();
+        if s > n / U256::from(2) {
+            s = n - s;
+        }
+        Signature::new(r, FieldElement::new(s, n))
+    }
 
-    // pub fn sign(&self, z: U256) -> Signature {
-    //     let mut rng = rand::thread_rng();
-    //     let k = FieldElement::new(rng.gen::<U256>(), U256::from_str_radix(N, 16));
-    // }
+    pub fn deterministic_k(&self, mut z: U256) -> U256 {
+        let mut k = vec![b'\x00'; 32];
+        let mut v = vec![b'\x01'; 32];
+        let n = U256::from_str_radix(N, 16).unwrap();
+        if z > n {
+            z -= n;
+        }
+        let mut z_bytes: [u8; 32] = Default::default();
+        let mut secret_bytes: [u8; 32] = Default::default();
+        z.to_big_endian(&mut z_bytes);
+        self.secret.to_big_endian(&mut secret_bytes);
+        let mut hmac = HmacSha256::new_from_slice(&k).unwrap();
+        hmac.update(&v);
+        hmac.update(&[b'\x00']);
+        hmac.update(&secret_bytes);
+        hmac.update(&z_bytes);
+        k = hmac.finalize().into_bytes().as_slice().to_vec();
+        let mut hmac = HmacSha256::new_from_slice(&k).unwrap();
+        hmac.update(&v);
+        v = hmac.finalize().into_bytes().as_slice().to_vec();
+
+        let mut hmac = HmacSha256::new_from_slice(&k).unwrap();
+        hmac.update(&v);
+        hmac.update(&[b'\x01']);
+        hmac.update(&secret_bytes);
+        hmac.update(&z_bytes);
+        k = hmac.finalize().into_bytes().as_slice().to_vec();
+        let mut hmac = HmacSha256::new_from_slice(&k).unwrap();
+        hmac.update(&v);
+        v = hmac.finalize().into_bytes().as_slice().to_vec();
+        loop {
+            let mut hmac = HmacSha256::new_from_slice(&k).unwrap();
+            hmac.update(&v);
+            v = hmac.finalize().into_bytes().as_slice().to_vec();
+            let candidate = U256::from(v.as_slice());
+            if candidate > U256::one() && candidate < n {
+                return candidate;
+            }
+            let mut hmac = HmacSha256::new_from_slice(&k).unwrap();
+            hmac.update(&v);
+            hmac.update(&[b'\x00']);
+            k = hmac.finalize().into_bytes().as_slice().to_vec();
+            let mut hmac = HmacSha256::new_from_slice(&k).unwrap();
+            hmac.update(&v);
+            v = hmac.finalize().into_bytes().as_slice().to_vec();
+        }
+    }
 }
