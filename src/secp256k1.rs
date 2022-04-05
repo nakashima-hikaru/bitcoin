@@ -142,12 +142,12 @@ impl S256Point {
         U256::from_str_radix(N, 16).unwrap()
     }
     pub fn verify(&self, z: U256, sig: Signature) -> bool {
-        let tmp = FieldElement::new(sig.get_s().get_num(), U256::from_str_radix(N, 16).unwrap());
-        let s_inv = tmp.get_inverse();
-        let u = (z * s_inv).get_num();
-        let v = (sig.get_r() * s_inv).get_num();
+        let tmp = FieldElement::new(sig.get_s(), U256::from_str_radix(N, 16).unwrap());
+        let s_inv = tmp.get_inverse().get_num();
+        let u = U256::try_from(z.full_mul(s_inv) % N).unwrap();
+        let v = U256::try_from(sig.get_r().full_mul(s_inv) % N).unwrap();
         let total = u * Self::get_generic_point() + v * *self;
-        total.point.get_coordinate().unwrap().get_x() == sig.get_r()
+        total.point.get_coordinate().unwrap().get_x().get_num() == sig.get_r()
     }
 }
 
@@ -204,9 +204,64 @@ impl fmt::Display for S256Point {
     }
 }
 
-#[test]
-fn main() {
-    let g = S256Point::get_generic_point();
-    let n = S256Point::get_order_of_generic_point();
-    println!("{}", n * g);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test::Bencher;
+    #[test]
+    fn test_verify() {
+        let point = S256Point::new(
+            Some(
+                U256::from_str_radix(
+                    "0x887387e452b8eacc4acfde10d9aaf7f6d9a0f975aabb10d006e4da568744d06c",
+                    16,
+                )
+                .unwrap(),
+            ),
+            Some(
+                U256::from_str_radix(
+                    "0x61de6d95231cd89026e286df3b6ae4a894a3378e393e93a0f45b666329a0ae34",
+                    16,
+                )
+                .unwrap(),
+            ),
+        );
+        let z = U256::from_str_radix(
+            "0xec208baa0fc1c19f708a9ca96fdeff3ac3f230bb4a7ba4aede4942ad003c0f60",
+            16,
+        )
+        .unwrap();
+        let r = U256::from_str_radix(
+            "0xac8d1c87e51d0d441be8b3dd5b05c8795b48875dffe00b7ffcfac23010d3a395",
+            16,
+        )
+        .unwrap();
+        let s = U256::from_str_radix(
+            "0x68342ceff8935ededd102dd876ffd6ba72d6a427a3edb13d26eb0781cb423c4",
+            16,
+        )
+        .unwrap();
+        assert!(point.verify(z, Signature::new(r, s)));
+        let z = U256::from_str_radix(
+            "0x7c076ff316692a3d7eb3c3bb0f8b1488cf72e1afcd929e29307032997a838a3d",
+            16,
+        )
+        .unwrap();
+        let r = U256::from_str_radix(
+            "0xeff69ef2b1bd93a66ed5219add4fb51e11a840f404876325a1e8ffe0529a2c",
+            16,
+        )
+        .unwrap();
+        let s = U256::from_str_radix(
+            "0xc7207fee197d27c618aea621406f6bf5ef6fca38681d82b2f06fddbdce6feab6",
+            16,
+        )
+        .unwrap();
+        assert!(point.verify(z, Signature::new(r, s)));
+    }
+
+    #[bench]
+    fn bench_verify(b: &mut Bencher) {
+        b.iter(|| test_verify());
+    }
 }

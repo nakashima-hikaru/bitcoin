@@ -8,18 +8,18 @@ use sha2::Sha256;
 use std::fmt;
 type HmacSha256 = Hmac<Sha256>;
 pub struct Signature {
-    r: FieldElement,
-    s: FieldElement,
+    r: U256,
+    s: U256,
 }
 
 impl Signature {
-    pub fn new(r: FieldElement, s: FieldElement) -> Self {
+    pub fn new(r: U256, s: U256) -> Self {
         Self { r, s }
     }
-    pub fn get_r(&self) -> FieldElement {
+    pub fn get_r(&self) -> U256 {
         self.r
     }
-    pub fn get_s(&self) -> FieldElement {
+    pub fn get_s(&self) -> U256 {
         self.s
     }
 }
@@ -48,15 +48,16 @@ impl PrivateKey {
             .get_point()
             .get_coordinate()
             .unwrap()
-            .get_x();
+            .get_x()
+            .get_num();
         let n = U256::from_str_radix(N, 16).unwrap();
         let k_inv = FieldElement::new(k % n, n).get_inverse();
-        let s = (FieldElement::new(z, n) + r * self.secret) * k_inv;
+        let s = (FieldElement::new(z, n) + r * FieldElement::new(self.secret, n)) * k_inv;
         let mut s = s.get_num();
         if s > n / U256::from(2) {
             s = n - s;
         }
-        Signature::new(r, FieldElement::new(s, n))
+        Signature::new(r, s)
     }
 
     pub fn deterministic_k(&self, mut z: U256) -> U256 {
@@ -105,5 +106,24 @@ impl PrivateKey {
             hmac.update(&v);
             v = hmac.finalize().into_bytes().as_slice().to_vec();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_sign() {
+        let pk = PrivateKey::new(U256::one());
+        let z = U256::one();
+        let sig = pk.sign(z);
+        assert_eq!(
+            pk.deterministic_k(z),
+            U256::from_dec_str(
+                "69770345078884640739184711464744623257826325099242396410478198115888237352364"
+            )
+            .unwrap()
+        );
+        assert!(pk.point.verify(z, sig));
     }
 }

@@ -1,6 +1,8 @@
 #![feature(test)]
 extern crate test;
-use crate::secp256k1::S256Point;
+use primitive_types::U256;
+
+use crate::{secp256k1::S256Point, signature::Signature};
 mod field_element;
 mod point;
 mod secp256k1;
