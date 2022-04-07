@@ -10,6 +10,7 @@ use crate::{
     point::{PlaneElement, Point},
     signature::Signature,
 };
+use hex::FromHex;
 
 pub const P: &str = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F";
 pub const GX: &str = "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798";
@@ -149,6 +150,28 @@ impl S256Point {
         let total = u * Self::get_generic_point() + v * *self;
         total.point.get_coordinate().unwrap().get_x().get_num() == sig.get_r()
     }
+
+    pub fn sec(&self) -> Vec<u8> {
+        let mut ret = vec![b'\x04'];
+        let mut x_bytes: [u8; 32] = Default::default();
+        self.point
+            .get_coordinate()
+            .unwrap()
+            .get_x()
+            .get_num()
+            .to_big_endian(&mut x_bytes);
+        let mut y_bytes: [u8; 32] = Default::default();
+        self.point
+            .get_coordinate()
+            .unwrap()
+            .get_y()
+            .get_num()
+            .to_big_endian(&mut y_bytes);
+
+        ret.append(&mut x_bytes.to_vec());
+        ret.append(&mut y_bytes.to_vec());
+        ret
+    }
 }
 
 impl Add for S256Point {
@@ -263,5 +286,39 @@ mod tests {
     #[bench]
     fn bench_verify(b: &mut Bencher) {
         b.iter(|| test_verify());
+    }
+
+    #[test]
+    fn test_sec() {
+        fn test(secret: U256, expected_str: &str) {
+            let public = (secret * S256Point::get_generic_point())
+                .get_point()
+                .get_coordinate()
+                .unwrap();
+            let tmp = S256Point::new(
+                Some(public.get_x().get_num()),
+                Some(public.get_y().get_num()),
+            );
+            let result = tmp.sec();
+            let mut expected: [u8; 65] = [0; 65];
+            hex::decode_to_slice(&expected_str, &mut expected);
+            assert_eq!(result, expected);
+        }
+
+        let secret = U256::from(5000);
+        let expected_str =
+            "04ffe558e388852f0120e46af2d1b370f85854a8eb0841811ece0e3e03d282d57c315dc72890a4\
+f10a1481c031b03b351b0dc79901ca18a00cf009dbdb157a1d10";
+        test(secret, &expected_str);
+        let secret = U256::from(2018).pow(U256::from(5));
+        let expected_str =
+            "04027f3da1918455e03c46f659266a1bb5204e959db7364d2f473bdf8f0a13cc9dff87647fd023\
+c13b4a4994f17691895806e1b40b57f4fd22581a4f46851f3b06";
+        test(secret, &expected_str);
+        let secret = U256::from_str_radix("0xdeadbeef12345", 16).unwrap();
+        let expected_str =
+            "04d90cd625ee87dd38656dd95cf79f65f60f7273b67d3096e68bd81e4f5342691f842efa762fd5\
+9961d0e99803c61edba8b3e3f7dc3a341836f97733aebf987121";
+        test(secret, &expected_str);
     }
 }
