@@ -17,8 +17,8 @@ mod tests {
 
     #[bench]
     fn bench_multiple(b: &mut Bencher) {
-        let g = S256Point::get_generic_point();
-        let n = S256Point::get_order_of_generic_point();
+        let g = S256Point::get_the_generic_point();
+        let n = S256Point::get_the_order_of_generic_point();
         b.iter(|| n * g);
     }
 }

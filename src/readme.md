@@ -1,15 +1,27 @@
 # 暗号のアルゴリズム
 
+## 数式
+
+$N$: 素数, $e, k \in \mathbb{F}_N$
+
+* $eG = P$
+* $kG = R$
+* $uG + vP = kG$
+* $u=\dfrac{z}{s}$, $v=\dfrac{r}{s}$
+
 ## 署名の作成
 
-1. 秘密鍵 $e \in \mathbb{F}_N$ と署名ハッシュ $z \in {\rm U256}$ を取る.
-2. 署名ハッシュ $z$ から $k \in \mathbb{F}_N$ が定まる.
+$(e, z) \mapsto (r, s)$
+
+1. 秘密鍵 $e \in \mathbb{F}_N$ と署名ハッシュ $z \in {\rm \mathbb{F}_N}$ を取る.
+2. 署名ハッシュ $z$ から $k \in \mathbb{F}_N$ がランダムっぽく定まる. (RFC6979)
 3. $R:=(r, *):=kG$ から $r \in \mathbb{F}_p$ を求める.
 
-4. $s:=\displaystyle \frac{z+re}{k} \in \mathbb{F}_N$ とおく. 
-5. ここから, $u:=\displaystyle \frac{z}{s} \in \mathbb{F}_N$, $v:=\displaystyle \frac{r}{s} \in \mathbb{F}_N$ と定める.
+4. $s:=\dfrac{z+re}{k} \in \mathbb{F}_N$ とおく.
 
 ## 署名の検証
+
+与えられた $(r, s)$ の検証
 
 1. $(r, s) \in \mathbb{F}_N^2$ と署名ハッシュ $z \in {\rm U256}$, 公開鍵 $P:=eG$ が与えられているとする.
 

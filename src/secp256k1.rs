@@ -26,7 +26,7 @@ pub struct S256Field {
 
 impl S256Field {
     pub fn new(num: U256) -> Self {
-        let field_element = FieldElement::new(num, U256::from_str_radix(P, 16).unwrap());
+        let field_element = FieldElement::new(num, S256Field::get_prime());
         Self { field_element }
     }
     pub fn as_field_element(&self) -> FieldElement {
@@ -36,8 +36,20 @@ impl S256Field {
     pub fn get_inverse(&self) -> S256Field {
         S256Field::new(self.as_field_element().get_inverse().get_num())
     }
-    pub fn get_num(self) -> U256 {
+
+    pub fn get_num(&self) -> U256 {
         self.as_field_element().get_num()
+    }
+
+    fn get_prime() -> U256 {
+        U256::from_str_radix(P, 16).unwrap()
+    }
+
+    pub fn sqrt(&self) -> U256 {
+        return self
+            .as_field_element()
+            .pow((S256Field::get_prime() + U256::one()) / U256::from(4))
+            .get_num();
     }
 }
 
@@ -129,51 +141,74 @@ impl S256Point {
         Self { point }
     }
 
-    pub fn get_point(&self) -> Point {
+    pub fn as_point(&self) -> Point {
         self.point
     }
 
-    pub fn get_generic_point() -> Self {
+    pub fn get_the_generic_point() -> Self {
         S256Point::new(
             Some(U256::from_str_radix(GX, 16).unwrap()),
             Some(U256::from_str_radix(GY, 16).unwrap()),
         )
     }
-    pub fn get_order_of_generic_point() -> U256 {
+    pub fn get_x(&self) -> FieldElement {
+        self.point.get_coordinate().unwrap().get_x()
+    }
+    pub fn get_y(&self) -> FieldElement {
+        self.point.get_coordinate().unwrap().get_y()
+    }
+
+    pub fn get_the_order_of_generic_point() -> U256 {
         U256::from_str_radix(N, 16).unwrap()
     }
+
     pub fn verify(&self, z: U256, sig: Signature) -> bool {
         let tmp = FieldElement::new(sig.get_s(), U256::from_str_radix(N, 16).unwrap());
         let s_inv = tmp.get_inverse().get_num();
         let u = U256::try_from(z.full_mul(s_inv) % N).unwrap();
         let v = U256::try_from(sig.get_r().full_mul(s_inv) % N).unwrap();
-        let total = u * Self::get_generic_point() + v * *self;
+        let total = u * Self::get_the_generic_point() + v * *self;
         total.point.get_coordinate().unwrap().get_x().get_num() == sig.get_r()
     }
 
-    pub fn sec(&self) -> Vec<u8> {
-        let mut ret = vec![b'\x04'];
+    /// * 非圧縮方式
+    ///
+    ///     ナイーブにPointのx座標・y座標をbig endianで16進数に変換してつなげる
+    pub fn sec(&self) -> [u8; 65] {
+        let mut ret: [u8; 65] = [b'\x00'; 65];
+        ret[0] = b'\x04';
         let mut x_bytes: [u8; 32] = Default::default();
-        self.point
-            .get_coordinate()
-            .unwrap()
-            .get_x()
-            .get_num()
-            .to_big_endian(&mut x_bytes);
+        self.get_x().get_num().to_big_endian(&mut x_bytes);
         let mut y_bytes: [u8; 32] = Default::default();
-        self.point
-            .get_coordinate()
-            .unwrap()
-            .get_y()
-            .get_num()
-            .to_big_endian(&mut y_bytes);
+        self.get_y().get_num().to_big_endian(&mut y_bytes);
+        for i in 0..32 {
+            ret[i + 1] = x_bytes[i];
+        }
+        for i in 0..32 {
+            ret[i + 33] = y_bytes[i];
+        }
+        ret
+    }
 
-        ret.append(&mut x_bytes.to_vec());
-        ret.append(&mut y_bytes.to_vec());
+    /// * 圧縮方式
+    ///
+    ///     yの偶奇とxを返す。
+    ///     xに対応する二つのyの偶奇は異なるので、yの偶奇とxからyが復元できる。
+    pub fn compressed_sec(&self) -> [u8; 33] {
+        let mut ret: [u8; 33] = [b'\x00'; 33];
+        if self.get_y().get_num().bit(0) {
+            ret[0] = b'\x03';
+        } else {
+            ret[0] = b'\x02';
+        }
+        let mut x_bytes: [u8; 32] = Default::default();
+        self.get_x().get_num().to_big_endian(&mut x_bytes);
+        for i in 0..32 {
+            ret[i + 1] = x_bytes[i];
+        }
         ret
     }
 }
-
 impl Add for S256Point {
     type Output = Self;
     fn add(self, rhs: S256Point) -> Self::Output {
@@ -230,7 +265,6 @@ impl fmt::Display for S256Point {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test::Bencher;
     #[test]
     fn test_verify() {
         let point = S256Point::new(
@@ -283,16 +317,11 @@ mod tests {
         assert!(point.verify(z, Signature::new(r, s)));
     }
 
-    #[bench]
-    fn bench_verify(b: &mut Bencher) {
-        b.iter(|| test_verify());
-    }
-
     #[test]
     fn test_sec() {
         fn test(secret: U256, expected_str: &str) {
-            let public = (secret * S256Point::get_generic_point())
-                .get_point()
+            let public = (secret * S256Point::get_the_generic_point())
+                .as_point()
                 .get_coordinate()
                 .unwrap();
             let tmp = S256Point::new(
@@ -301,7 +330,7 @@ mod tests {
             );
             let result = tmp.sec();
             let mut expected: [u8; 65] = [0; 65];
-            hex::decode_to_slice(&expected_str, &mut expected);
+            hex::decode_to_slice(&expected_str, &mut expected).unwrap();
             assert_eq!(result, expected);
         }
 
