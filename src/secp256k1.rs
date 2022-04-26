@@ -1,16 +1,14 @@
-use std::{
-    fmt,
-    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
-};
-
-use primitive_types::U256;
-
 use crate::{
+    base58::{encode_base58_checksum, hash160},
     field_element::FieldElement,
     point::{PlaneElement, Point},
     signature::Signature,
 };
-use hex::FromHex;
+use primitive_types::U256;
+use std::{
+    fmt,
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
+};
 
 pub const P: &str = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F";
 pub const GX: &str = "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798";
@@ -46,10 +44,12 @@ impl S256Field {
     }
 
     pub fn sqrt(&self) -> U256 {
-        return self
-            .as_field_element()
+        self.as_field_element()
             .pow((S256Field::get_prime() + U256::one()) / U256::from(4))
-            .get_num();
+            .get_num()
+    }
+    pub fn pow(&self, exponent: U256) -> S256Field {
+        self.as_field_element().pow(exponent).try_into().unwrap()
     }
 }
 
@@ -119,7 +119,18 @@ impl fmt::Display for S256Field {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+impl TryFrom<FieldElement> for S256Field {
+    type Error = ();
+
+    fn try_from(field_element: FieldElement) -> Result<Self, Self::Error> {
+        if field_element.get_prime() == S256Field::get_prime() {
+            Ok(S256Field::new(field_element.get_num()))
+        } else {
+            Err(())
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct S256Point {
     point: Point,
 }
@@ -171,10 +182,10 @@ impl S256Point {
         total.point.get_coordinate().unwrap().get_x().get_num() == sig.get_r()
     }
 
-    /// * 非圧縮方式
+    /// * 非圧縮方式SEC
     ///
     ///     ナイーブにPointのx座標・y座標をbig endianで16進数に変換してつなげる
-    pub fn sec(&self) -> [u8; 65] {
+    fn sec(&self) -> [u8; 65] {
         let mut ret: [u8; 65] = [b'\x00'; 65];
         ret[0] = b'\x04';
         let mut x_bytes: [u8; 32] = Default::default();
@@ -190,11 +201,11 @@ impl S256Point {
         ret
     }
 
-    /// * 圧縮方式
+    /// * 圧縮方式SEC
     ///
     ///     yの偶奇とxを返す。
     ///     xに対応する二つのyの偶奇は異なるので、yの偶奇とxからyが復元できる。
-    pub fn compressed_sec(&self) -> [u8; 33] {
+    fn compressed_sec(&self) -> [u8; 33] {
         let mut ret: [u8; 33] = [b'\x00'; 33];
         if self.get_y().get_num().bit(0) {
             ret[0] = b'\x03';
@@ -207,6 +218,52 @@ impl S256Point {
             ret[i + 1] = x_bytes[i];
         }
         ret
+    }
+
+    /// Returns S256Point from SEC
+    pub fn parse(sec_bin: &[u8]) -> Self {
+        if sec_bin[0] == 4 {
+            let x = U256::from_big_endian(&sec_bin[1..33]);
+            let y = U256::from_big_endian(&sec_bin[33..65]);
+            return S256Point::new(Some(x), Some(y));
+        }
+        let is_even = sec_bin[0] == 2;
+        let x = S256Field::new(U256::from_big_endian(&sec_bin[1..]));
+        let alpha = x.pow(U256::from(3)) + S256Field::new(U256::from(B));
+        let beta = alpha.sqrt();
+        let even_beta;
+        let odd_beta;
+        if beta.bit(0) {
+            even_beta = U256::from_str_radix(P, 16).unwrap() - beta;
+            odd_beta = beta;
+        } else {
+            even_beta = beta;
+            odd_beta = U256::from_str_radix(P, 16).unwrap() - beta;
+        }
+        if is_even {
+            return S256Point::new(Some(x.get_num()), Some(even_beta));
+        } else {
+            return S256Point::new(Some(x.get_num()), Some(odd_beta));
+        }
+    }
+
+    pub fn hash160(&self, compressed: bool) -> Vec<u8> {
+        if compressed {
+            return hash160(&self.compressed_sec());
+        } else {
+            return hash160(&self.sec());
+        }
+    }
+
+    pub fn address(&self, compressed: bool, testnet: bool) -> String {
+        let h160 = self.hash160(compressed);
+        let prefix;
+        if testnet {
+            prefix = b'\x6f';
+        } else {
+            prefix = b'\x00';
+        }
+        encode_base58_checksum(&[[prefix].to_vec(), h160].concat())
     }
 }
 impl Add for S256Point {
@@ -255,8 +312,8 @@ impl fmt::Display for S256Point {
             write!(
                 f,
                 "({}, {})",
-                self.point.get_coordinate().unwrap().get_x().get_num(),
-                self.point.get_coordinate().unwrap().get_y().get_num(),
+                self.get_x().get_num(),
+                self.get_y().get_num(),
             )
         }
     }
@@ -349,5 +406,36 @@ c13b4a4994f17691895806e1b40b57f4fd22581a4f46851f3b06";
             "04d90cd625ee87dd38656dd95cf79f65f60f7273b67d3096e68bd81e4f5342691f842efa762fd5\
 9961d0e99803c61edba8b3e3f7dc3a341836f97733aebf987121";
         test(secret, &expected_str);
+    }
+
+    #[test]
+    fn test_compressed_sec_and_parse() {
+        let e = U256::from(5001);
+        let g = S256Point::get_the_generic_point();
+        let p = e * g;
+        let x = p.compressed_sec();
+        let s = S256Point::parse(&x);
+        assert_eq!(p, s);
+    }
+
+    #[test]
+    fn test_address() {
+        let e = U256::from(5002);
+        let g = S256Point::get_the_generic_point();
+        let p = e * g;
+        let ret = p.address(false, true);
+        assert_eq!(ret, "mmTPbXQFxboEtNRkwfh6K51jvdtHLxGeMA");
+
+        let e = U256::from(2020_i64.pow(5));
+        let g = S256Point::get_the_generic_point();
+        let p = e * g;
+        let ret = p.address(true, true);
+        assert_eq!(ret, "mopVkxp8UhXqRYbCYJsbeE1h1fiF64jcoH");
+
+        let e = U256::from(0x12345deadbeef as i64);
+        let g = S256Point::get_the_generic_point();
+        let p = e * g;
+        let ret = p.address(true, false);
+        assert_eq!(ret, "1F1Pn2y6pDb68E5nYJJeba4TLg2U7B6KF1");
     }
 }

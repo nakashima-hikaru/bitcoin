@@ -1,4 +1,5 @@
 use crate::{
+    base58::encode_base58_checksum,
     field_element::FieldElement,
     secp256k1::{S256Point, N},
 };
@@ -106,52 +107,101 @@ impl PrivateKey {
         Signature::new(r, s)
     }
 
-    pub fn deterministic_k(&self, mut z: U256) -> U256 {
-        let mut k = vec![b'\x00'; 32];
-        let mut v = vec![b'\x01'; 32];
+    pub fn deterministic_k(&self, z: U256) -> U256 {
+        let mut k = [b'\x00'; 32];
+        let mut v = [b'\x01'; 32];
         let n = U256::from_str_radix(N, 16).unwrap();
-        if z > n {
-            z -= n;
-        }
+        let z = if z > n { z - n } else { z };
         let mut z_bytes: [u8; 32] = Default::default();
         let mut secret_bytes: [u8; 32] = Default::default();
         z.to_big_endian(&mut z_bytes);
         self.secret.to_big_endian(&mut secret_bytes);
-        let mut hmac = HmacSha256::new_from_slice(&k).unwrap();
-        hmac.update(&v);
-        hmac.update(&[b'\x00']);
-        hmac.update(&secret_bytes);
-        hmac.update(&z_bytes);
-        k = hmac.finalize().into_bytes().as_slice().to_vec();
-        let mut hmac = HmacSha256::new_from_slice(&k).unwrap();
-        hmac.update(&v);
-        v = hmac.finalize().into_bytes().as_slice().to_vec();
 
-        let mut hmac = HmacSha256::new_from_slice(&k).unwrap();
-        hmac.update(&v);
-        hmac.update(&[b'\x01']);
-        hmac.update(&secret_bytes);
-        hmac.update(&z_bytes);
-        k = hmac.finalize().into_bytes().as_slice().to_vec();
-        let mut hmac = HmacSha256::new_from_slice(&k).unwrap();
-        hmac.update(&v);
-        v = hmac.finalize().into_bytes().as_slice().to_vec();
+        k = HmacSha256::new_from_slice(&k)
+            .unwrap()
+            .chain_update(&v)
+            .chain_update(&[b'\x00'])
+            .chain_update(&secret_bytes)
+            .chain_update(&z_bytes)
+            .finalize()
+            .into_bytes()
+            .try_into()
+            .unwrap();
+
+        v = HmacSha256::new_from_slice(&k)
+            .unwrap()
+            .chain_update(&v)
+            .finalize()
+            .into_bytes()
+            .try_into()
+            .unwrap();
+
+        k = HmacSha256::new_from_slice(&k)
+            .unwrap()
+            .chain_update(&v)
+            .chain_update(&[b'\x01'])
+            .chain_update(&secret_bytes)
+            .chain_update(&z_bytes)
+            .finalize()
+            .into_bytes()
+            .try_into()
+            .unwrap();
+
+        v = HmacSha256::new_from_slice(&k)
+            .unwrap()
+            .chain_update(&v)
+            .finalize()
+            .into_bytes()
+            .try_into()
+            .unwrap();
         loop {
-            let mut hmac = HmacSha256::new_from_slice(&k).unwrap();
-            hmac.update(&v);
-            v = hmac.finalize().into_bytes().as_slice().to_vec();
+            v = HmacSha256::new_from_slice(&k)
+                .unwrap()
+                .chain_update(&v)
+                .finalize()
+                .into_bytes()
+                .try_into()
+                .unwrap();
             let candidate = U256::from(v.as_slice());
             if candidate > U256::one() && candidate < n {
                 return candidate;
             }
-            let mut hmac = HmacSha256::new_from_slice(&k).unwrap();
-            hmac.update(&v);
-            hmac.update(&[b'\x00']);
-            k = hmac.finalize().into_bytes().as_slice().to_vec();
-            let mut hmac = HmacSha256::new_from_slice(&k).unwrap();
-            hmac.update(&v);
-            v = hmac.finalize().into_bytes().as_slice().to_vec();
+            k = HmacSha256::new_from_slice(&k)
+                .unwrap()
+                .chain_update(&v)
+                .chain_update(&[b'\x00'])
+                .finalize()
+                .into_bytes()
+                .try_into()
+                .unwrap();
+            v = HmacSha256::new_from_slice(&k)
+                .unwrap()
+                .chain_update(&v)
+                .finalize()
+                .into_bytes()
+                .try_into()
+                .unwrap();
         }
+    }
+
+    pub fn wif(&self, compressed: bool, testnet: bool) -> String {
+        let mut secret_bytes: [u8; 32] = Default::default();
+        self.secret.to_big_endian(&mut secret_bytes);
+        let mut ret: Vec<u8> = Default::default();
+        let prefix;
+        if testnet {
+            prefix = b'\xef';
+        } else {
+            prefix = b'\x80';
+        }
+        ret.append(&mut [prefix].to_vec());
+        ret.append(&mut secret_bytes.to_vec());
+        let suffix;
+        if compressed {
+            suffix = b'\x01';
+            ret.append(&mut [suffix].to_vec());
+        }
+        encode_base58_checksum(&ret)
     }
 }
 
@@ -193,5 +243,20 @@ mod tests {
             "3045022037206a0610995c58074999cb9767b87af4c4978db68c06e8e6e81d282047a7c6022100\
 8ca63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec"
         );
+    }
+
+    #[test]
+    fn test_wif() {
+        let key = PrivateKey::new(U256::from(5003));
+        let ret = key.wif(true, true);
+        assert_eq!(ret, "cMahea7zqjxrtgAbB7LSGbcQUr1uX1ojuat9jZodMN8rFTv2sfUK");
+
+        let key = PrivateKey::new(U256::from(2021_i64.pow(5)));
+        let ret = key.wif(false, true);
+        assert_eq!(ret, "91avARGdfge8E4tZfYLoxeJ5sGBdNJQH4kvjpWAxgzczjbCwxic");
+
+        let key = PrivateKey::new(U256::from_str_radix("0x54321deadbeef", 16).unwrap());
+        let ret = key.wif(true, false);
+        assert_eq!(ret, "KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgiuQJv1h8Ytr2S53a");
     }
 }

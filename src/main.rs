@@ -1,8 +1,10 @@
 #![feature(test)]
+#![feature(concat_bytes)]
 extern crate test;
 use primitive_types::U256;
 
 use crate::{secp256k1::S256Point, signature::Signature};
+mod base58;
 mod field_element;
 mod point;
 mod secp256k1;
